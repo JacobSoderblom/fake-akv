@@ -1,0 +1,30 @@
+[project]
+name = "fake-akv"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Jacob Söderblom", email = "jacob.soderblom@protonmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi==0.115.0",
+    "pydantic==2.9.2",
+    "python-multipart==0.0.9",
+    "sqlalchemy==2.0.36",
+    "uvicorn==0.30.6",
+]
+
+[project.scripts]
+fake-akv = "fake_akv:main"
+
+[build-system]
+requires = ["uv_build>=0.9.3,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "azure-keyvault-secrets>=4.10.0",
+    "cryptography>=46.0.3",
+    "pytest>=8.4.2",
+]
