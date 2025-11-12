@@ -1,4 +1,5 @@
 import os
+import time
 from typing import Any, Optional
 
 from fastapi import Body, FastAPI, Header, HTTPException, Query, Request
@@ -53,40 +54,68 @@ def require_auth(request: Request, authorization: Optional[str]):
         )
 
 
+def _unix_now() -> int:
+    return int(time.time())
+
+
 def build_secret_result(
-    request: Request, name: str, version: str, data: dict, include_value: bool = True
+    request: Request,
+    name: str,
+    version: Optional[str],
+    data: dict[str, Any],
+    include_value: bool = True,
 ) -> SecretResult:
     base = akv_base_url(request)
+
+    attrs: dict[str, Any] = {
+        "enabled": data.get("enabled", True),
+        "created": data.get("created") or _unix_now(),
+        "updated": data.get("updated") or _unix_now(),
+        "recoveryLevel": (data.get("recoveryLevel") or "Purgeable"),
+    }
+    extra_attrs = data.get("attributes") or {}
+    if extra_attrs:
+        attrs.update(extra_attrs)
+
     body = SecretResult(
-        value=(data.get("value") if include_value else None),
-        id=f"{base}/secrets/{name}/{version}",
-        attributes={
-            "enabled": data.get("enabled", True),
-            "created": data.get("created"),
-            "updated": data.get("updated"),
-            **(data.get("attributes") or {}),
-        },
-        tags=data.get("tags") or None,
+        value=str(data.get("value"))
+        if include_value and data.get("value") is not None
+        else None,
+        id=f"{base}/secrets/{name}/{version or '00000000000000000000000000000000'}",
+        attributes=attrs,
+        tags=data.get("tags")
+        if isinstance(data.get("tags"), dict) and data["tags"]
+        else None,
     )
     return body
 
 
-def build_secret_properties_result(request: Request, name: str, data: dict) -> dict:
-    """
-    Shape used by list operations: id ends at /secrets/{name}, no 'value' field.
-    """
+def build_secret_properties_result(
+    request: Request, name: str, data: dict[str, Any]
+) -> dict[str, Any]:
     base = akv_base_url(request)
-    return {
-        "id": f"{base}/secrets/{name}",
-        "attributes": {
-            "enabled": data.get("enabled", True),
-            "created": data.get("created"),
-            "updated": data.get("updated"),
-            **(data.get("attributes") or {}),
-        },
-        "tags": data.get("tags") or None,
-        "contentType": (data.get("attributes") or {}).get("contentType"),
+    attrs: dict[str, Any] = {
+        "enabled": data.get("enabled", True),
+        "created": data.get("created") or _unix_now(),
+        "updated": data.get("updated") or _unix_now(),
+        "recoveryLevel": (data.get("recoveryLevel") or "Purgeable"),
     }
+    extra_attrs = data.get("attributes") or {}
+    if extra_attrs:
+        attrs.update(extra_attrs)
+
+    payload: dict[str, Any] = {
+        "id": f"{base}/secrets/{name}",
+        "attributes": attrs,
+    }
+    # Optional fields: only include if present (not None)
+    if isinstance(data.get("tags"), dict) and data["tags"]:
+        payload["tags"] = {str(k): str(v) for k, v in data["tags"].items()}
+    content_type = (data.get("attributes") or {}).get("contentType")
+    if content_type is not None:
+        payload["contentType"] = str(content_type)
+
+    return payload
 
 
 @app.put("/secrets/{name}")
@@ -102,7 +131,7 @@ async def put_secret(
     body_dict: dict[str, Any] = {}
 
     if payload is not None:
-        body_dict = payload.model_dump()
+        body_dict = payload.model_dump(exclude_none=True)
     else:
         try:
             raw = await request.json()
@@ -136,7 +165,9 @@ async def put_secret(
     data = storage.get_version(name, version)
     if data is None:
         raise HTTPException(status_code=500, detail="Secret creation failed")
-    return JSONResponse(build_secret_result(request, name, version, data).model_dump())
+    return JSONResponse(
+        build_secret_result(request, name, version, data).model_dump(exclude_none=True)
+    )
 
 
 @app.get("/secrets/{name}")
@@ -149,7 +180,9 @@ async def get_secret_latest(
     if not res:
         raise HTTPException(status_code=404, detail="Secret not found")
     version, data = res
-    return JSONResponse(build_secret_result(request, name, version, data).model_dump())
+    return JSONResponse(
+        build_secret_result(request, name, version, data).model_dump(exclude_none=True)
+    )
 
 
 @app.get("/secrets")
@@ -186,7 +219,7 @@ async def list_secret_versions(
         items.append(
             build_secret_result(
                 request, name, version, data, include_value=False
-            ).model_dump()
+            ).model_dump(exclude_none=True)
         )
     return {"value": items, "nextLink": None}
 
@@ -203,7 +236,9 @@ async def get_secret_version(
     data = storage.get_version(name, version)
     if data is None:
         raise HTTPException(status_code=404, detail="Secret/version not found")
-    return JSONResponse(build_secret_result(request, name, version, data).model_dump())
+    return JSONResponse(
+        build_secret_result(request, name, version, data).model_dump(exclude_none=True)
+    )
 
 
 @app.delete("/secrets/{name}")
@@ -226,7 +261,7 @@ async def delete_secret(
         attributes=data.get("attributes") or {},
         tags=data.get("tags") or None,
     )
-    return JSONResponse(body.model_dump())
+    return JSONResponse(body.model_dump(exclude_none=True))
 
 
 @app.get("/deletedsecrets/{name}")
@@ -249,7 +284,7 @@ async def get_deleted_secret(
         attributes=data.get("attributes") or {},
         tags=data.get("tags") or None,
     )
-    return JSONResponse(body.model_dump())
+    return JSONResponse(body.model_dump(exclude_none=True))
 
 
 @app.post("/deletedsecrets/{name}/recover")
@@ -263,7 +298,9 @@ async def recover_deleted_secret(
         raise HTTPException(status_code=404, detail="Nothing to recover")
     latest = storage.get_latest(name)
     version, data = latest if latest else ("", {"attributes": {}, "tags": {}})
-    return JSONResponse(build_secret_result(request, name, version, data).model_dump())
+    return JSONResponse(
+        build_secret_result(request, name, version, data).model_dump(exclude_none=True)
+    )
 
 
 @app.get("/")
