@@ -2,6 +2,7 @@
 
 This folder contains an xUnit project that exercises the fake Key Vault service using the official **Azure.Security.KeyVault.Secrets** SDK.
 Authentication uses a static bearer token and a redirect-following HTTP handler suited for local/fake deployments.
+The tests build the repository's Docker image and launch it via Testcontainers so they exercise the real service.
 
 ## Prerequisites
 - .NET 8 SDK
@@ -16,4 +17,5 @@ From the repository root:
 dotnet test dotnet-tests/FakeAkv.IntegrationTests/FakeAkv.IntegrationTests.csproj
 ```
 
-Ensure the service is listening at `FAKE_AKV_BASE_URL` before running the tests.
+Testcontainers requires Docker to be available locally. The suite builds the repo's `dockerfile` and mounts a temporary
+self-signed certificate into the container for HTTPS.

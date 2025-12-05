@@ -11,3 +11,12 @@ wheels/
 
 data/
 certs/
+tmpcert/
+
+# .NET build artifacts
+bin/
+obj/
+.vs/
+*.user
+dotnet-tests/**/bin/
+dotnet-tests/**/obj/

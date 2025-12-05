@@ -92,3 +92,34 @@ public sealed class FollowRedirectWithAuthHandler : DelegatingHandler
         return clone;
     }
 }
+
+/// <summary>
+/// Minimal logging handler to help debug request content during tests.
+/// </summary>
+public sealed class LoggingHandler : DelegatingHandler
+{
+    protected override async Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken
+    )
+    {
+        Console.WriteLine($"--> {request.Method} {request.RequestUri}");
+        foreach (var header in request.Headers)
+        {
+            Console.WriteLine($"{header.Key}: {string.Join(", ", header.Value)}");
+        }
+        if (request.Content is not null)
+        {
+            foreach (var header in request.Content.Headers)
+            {
+                Console.WriteLine($"{header.Key}: {string.Join(", ", header.Value)}");
+            }
+            var body = await request.Content.ReadAsStringAsync(cancellationToken);
+            Console.WriteLine($"Body: {body}");
+        }
+
+        var response = await base.SendAsync(request, cancellationToken);
+        Console.WriteLine($"<-- {(int)response.StatusCode} {response.ReasonPhrase}");
+        return response;
+    }
+}
