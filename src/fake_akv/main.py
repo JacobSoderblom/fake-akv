@@ -190,6 +190,8 @@ async def list_secrets(
     request: Request,
     authorization: Optional[str] = Header(None),
     maxresults: Optional[int] = Query(None, alias="maxresults"),
+    tag_name: Optional[str] = Query(None, alias="tag-name"),
+    tag_value: Optional[str] = Query(None, alias="tag-value"),
 ):
     """
     List secret properties (no values). Azure returns { value: [...], nextLink: null }.
@@ -199,7 +201,7 @@ async def list_secrets(
     require_auth(request, authorization)
 
     items = []
-    for name, data in storage.list_names_latest():
+    for name, data in storage.list_names_latest(tag_name=tag_name, tag_value=tag_value):
         items.append(build_secret_properties_result(request, name, data))
 
     if isinstance(maxresults, int) and maxresults > 0:
@@ -238,6 +240,52 @@ async def get_secret_version(
         raise HTTPException(status_code=404, detail="Secret/version not found")
     return JSONResponse(
         build_secret_result(request, name, version, data).model_dump(exclude_none=True)
+    )
+
+
+@app.patch("/secrets/{name}/{version}")
+async def update_secret_properties(
+    name: str,
+    version: str,
+    request: Request,
+    payload: Optional[dict] = Body(default=None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Update tags/attributes for an existing secret version without requiring a new value.
+    Aligns with the SDK's update_secret_properties call that PATCHes metadata only.
+    """
+
+    require_api_version(request)
+    require_auth(request, authorization)
+
+    body: dict[str, Any] = {}
+    if isinstance(payload, dict):
+        body = {k: v for k, v in payload.items() if v is not None}
+    if not body:
+        raise HTTPException(status_code=400, detail="Request body must include fields to update")
+
+    attributes = body.get("attributes") or {}
+    if "contentType" in body:
+        attributes = {**attributes, "contentType": body["contentType"]}
+
+    updated = storage.update_secret_metadata(
+        name,
+        version,
+        tags=body.get("tags"),
+        attributes=attributes or None,
+    )
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Secret/version not found")
+
+    data = storage.get_version(name, version)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Secret/version not found")
+
+    return JSONResponse(
+        build_secret_result(
+            request, name, version, data, include_value=False
+        ).model_dump(exclude_none=True)
     )
 
 

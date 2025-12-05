@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
+import requests
 from azure.core.credentials import AccessToken
 from azure.core.pipeline.transport import RequestsTransport
 from azure.keyvault.secrets import SecretClient
@@ -67,3 +68,41 @@ def test_delete_and_recover(client: SecretClient):
 
     got = client.get_secret(name)
     assert got.value == "to-delete"
+
+
+def test_tags_lifecycle(client: SecretClient):
+    base_url = os.getenv("FAKE_AKV_BASE_URL", "https://127.0.0.1:8443")
+    name = f"it-{uuid.uuid4().hex[:8]}"
+    initial_tags = {"env": "dev", "team": "qa"}
+
+    created = client.set_secret(name, "tagged-value", tags=initial_tags)
+    assert created.properties.tags == initial_tags
+
+    fetched = client.get_secret(name)
+    assert fetched.properties.tags == initial_tags
+    assert fetched.value == "tagged-value"
+
+    listed = next((s for s in client.list_properties_of_secrets() if s.name == name), None)
+    assert listed is not None
+    assert listed.tags == initial_tags
+
+    updated = client.update_secret_properties(name, created.properties.version, tags={"env": "prod"})
+    assert updated.tags == {"env": "prod"}
+
+    refreshed = client.get_secret(name)
+    assert refreshed.properties.tags == {"env": "prod"}
+    assert refreshed.value == "tagged-value"
+
+    resp = requests.get(
+        f"{base_url}/secrets",
+        params={"api-version": "7.4", "tag-name": "env", "tag-value": "prod"},
+        headers={"Authorization": "Bearer dummy"},
+        verify=False,
+        timeout=2,
+    )
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert isinstance(payload.get("value"), list)
+    ids = [item.get("id", "") for item in payload["value"]]
+    assert any(f"/secrets/{name}" in i for i in ids)
+    assert all(item.get("tags", {}).get("env") == "prod" for item in payload["value"])

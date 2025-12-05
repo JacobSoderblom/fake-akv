@@ -165,6 +165,12 @@ Notes:
 - `connection_verify=False` skips TLS validation for self-signed certs.
 - `verify_challenge_resource=False` is required for non-`*.vault.azure.net` hosts.
 
+### Tag support
+
+- Set tags on create: `client.set_secret("demo", "value", tags={"env": "dev"})`
+- Update tags/attributes without changing the value: `client.update_secret_properties("demo", version, tags={"env": "prod"})`
+- List secrets filtered by tag via REST: `GET /secrets?tag-name=env&tag-value=prod&api-version=7.4`
+
 ---
 
 ## Usage from C #

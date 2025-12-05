@@ -214,18 +214,34 @@ class Storage:
                     "scheduledPurgeDate": int(row["deletedDate"]) + 86400 * 7,
                 }
 
-    def list_names_latest(self) -> Iterable[Tuple[str, dict]]:
+    def list_names_latest(
+        self, tag_name: Optional[str] = None, tag_value: Optional[str] = None
+    ) -> Iterable[Tuple[str, dict]]:
         """
         Yield (name, latest_data_dict) for each non-deleted secret name.
         latest_data_dict has the same shape as get_latest()[1].
+        If tag filters are provided, only secrets whose latest version tags
+        match the predicate are returned.
         """
+
+        def _matches_tags(data: dict) -> bool:
+            if tag_name is None:
+                return True
+            tags = data.get("tags") or {}
+            if tag_name not in tags:
+                return False
+            if tag_value is None:
+                return True
+            return str(tags.get(tag_name)) == str(tag_value)
+
         if self._engine is None:
             for name, versions in self._mem.items():
-                # skip names that are fully deleted
                 if all(v.get("deleted") for v in versions.values()):
                     continue
                 version = max(versions.items(), key=lambda kv: kv[1]["updated"])[0]
-                yield name, versions[version]
+                data = versions[version]
+                if _matches_tags(data):
+                    yield name, data
         else:
             with self._engine.begin() as conn:
                 rows = (
@@ -240,7 +256,78 @@ class Storage:
                 if latest is None:
                     continue
                 _, data = latest
-                yield name, data
+                if _matches_tags(data):
+                    yield name, data
+
+    def update_secret_metadata(
+        self,
+        name: str,
+        version: str,
+        tags: Optional[dict] = None,
+        attributes: Optional[dict] = None,
+    ) -> Optional[dict]:
+        """
+        Update tags/attributes for a secret version. Returns the updated record
+        or None if the version does not exist.
+        """
+        now = self._now()
+
+        if self._engine is None:
+            versions = self._mem.get(name)
+            if not versions or version not in versions:
+                return None
+            current = versions[version]
+            if current.get("deleted"):
+                return None
+            attrs = (current.get("attributes") or {}).copy()
+            if attributes:
+                attrs.update(attributes)
+            if tags is not None:
+                current["tags"] = tags
+            current["attributes"] = attrs
+            current["updated"] = now
+            return current
+
+        with self._engine.begin() as conn:
+            row = (
+                conn.execute(
+                    text(
+                        "SELECT value, tags, attributes, enabled, deleted, created, updated "
+                        "FROM secrets WHERE name=:n AND version=:v"
+                    ),
+                    {"n": name, "v": version},
+                )
+                .mappings()
+                .first()
+            )
+            if row is None or row["deleted"]:
+                return None
+
+            current = sqlrow_to_dict(row)
+            attrs = (current.get("attributes") or {}).copy()
+            if attributes:
+                attrs.update(attributes)
+            new_tags = tags if tags is not None else current.get("tags") or {}
+
+            conn.execute(
+                text(
+                    "UPDATE secrets SET tags=:t, attributes=:a, updated=:u "
+                    "WHERE name=:n AND version=:v"
+                ),
+                {
+                    "t": (new_tags and json_dumps(new_tags)) or None,
+                    "a": (attrs and json_dumps(attrs)) or None,
+                    "u": now,
+                    "n": name,
+                    "v": version,
+                },
+            )
+
+        updated_row = self.get_version(name, version)
+        if updated_row:
+            updated_row["updated"] = now
+            return updated_row
+        return None
 
     def recover(self, name: str) -> bool:
         if self._engine is None:
