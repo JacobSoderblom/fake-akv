@@ -185,6 +185,13 @@ async def get_secret_latest(
     )
 
 
+@app.get("/secrets/{name}/")
+async def get_secret_latest_trailing_slash(
+    name: str, request: Request, authorization: Optional[str] = Header(None)
+):
+    return await get_secret_latest(name, request, authorization)
+
+
 @app.get("/secrets")
 async def list_secrets(
     request: Request,
@@ -208,6 +215,17 @@ async def list_secrets(
         items = items[:maxresults]
 
     return {"value": items, "nextLink": None}
+
+
+@app.get("/secrets/")
+async def list_secrets_trailing_slash(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+    maxresults: Optional[int] = Query(None, alias="maxresults"),
+    tag_name: Optional[str] = Query(None, alias="tag-name"),
+    tag_value: Optional[str] = Query(None, alias="tag-value"),
+):
+    return await list_secrets(request, authorization, maxresults, tag_name, tag_value)
 
 
 @app.get("/secrets/{name}/versions")

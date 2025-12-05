@@ -1,0 +1,11 @@
+.git
+**/bin
+**/obj
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv
+.env
+dotnet-tests/bin
+dotnet-tests/obj
