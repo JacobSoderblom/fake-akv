@@ -6,9 +6,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     UV_SYSTEM_PYTHON=1 \
     UV_PYTHON=/usr/local/bin/python
 
-RUN apt-get update -y && apt-get install -y --no-install-recommends \
-      curl ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list \
+  && printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n' \
+     > /etc/apt/apt.conf.d/80retries \
+  && apt-get update -y \
+  && apt-get install -y --no-install-recommends curl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
 
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:${PATH}"
@@ -39,7 +42,11 @@ COPY --from=builder /app/src /app/src
 VOLUME ["/data"]
 EXPOSE 8443
 
-RUN apt-get update -y && apt-get install -y --no-install-recommends ca-certificates curl \
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list \
+  && printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n' \
+     > /etc/apt/apt.conf.d/80retries \
+  && apt-get update -y \
+  && apt-get install -y --no-install-recommends ca-certificates curl \
   && rm -rf /var/lib/apt/lists/*
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s CMD \
