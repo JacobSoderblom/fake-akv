@@ -1,0 +1,44 @@
+name: Publish Docker (amd64)
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+      - "*.*.*"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/fake-akv
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Derive version
+        run: |
+          if [ -z "$IMAGE_NAME" ]; then
+            echo "DOCKERHUB_USERNAME secret must be set" >&2
+            exit 1
+          fi
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "IMAGE_VERSION=${VERSION}" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push amd64 image
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            -f dockerfile \
+            -t "${IMAGE_NAME}:${IMAGE_VERSION}" \
+            -t "${IMAGE_NAME}:latest" \
+            . --push
